@@ -44,6 +44,9 @@ router.route("/api/createTag").post(geoTagController.createTag);
 router.route("/api/getAllTag").get(geoTagController.getAllTag);
 router.route("/api/markAttendance").post(recordController.markAttendance);
 router.route("/api/checkAttendanceStatus").post(recordController.checkAttendanceStatus);
+router.route("/api/getLatestAttendance").post(recordController.getLatestAttendance);
 router.route("/api/getRecords").post(recordController.getRecords);
+router.route("/api/getTest").post(recordController.getTest);
+router.route("/api/updateLocationStatus").post(recordController.updateLocationStatus);
 
 module.exports = router;

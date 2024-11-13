@@ -15,10 +15,7 @@ var schema = new mongoose.Schema(
       type: {},
       default: {},
     },
-    geoTag: {
-      type: String,
-      required: true,
-    },
+    updates : [],
     creation: {
       type: Date,
       required: [true, "A Record Must Have a Creation Date"],

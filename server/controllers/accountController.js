@@ -42,7 +42,6 @@ async function getUser(token) {
       }
       return freshUser;
     } else {
-      // next();
       throw new Error("No Token was given");
     }
   } catch (err) {
@@ -60,12 +59,6 @@ exports.createAccount = async (req, res) => {
     const newAcc = await account.create(body);
 
     const token = jwt.generate(newAcc.id);
-
-    // res.cookie("jwt", token, {
-    //   maxAge: JWT_EXPIRE_COOKIE * 24 * 60 * 60 * 1000,
-    //   // secure: true, //only when deploying or testing in website not in postman
-    //   httpOnly: true,
-    // });
 
     newAcc.password = undefined;
 
@@ -92,14 +85,15 @@ exports.createAccount = async (req, res) => {
 
 exports.loginAccount = async (req, res, next) => {
   try {
-    console.log("yes");
     const { regNo, password } = req.body;
 
     if (!regNo || !password) {
       throw new Error("Provide a Valid Register Number and Password");
     }
 
-    const user = await account.findOne({ facultyId: regNo }).select("+password");
+    const user = await account
+      .findOne({ facultyId: regNo })
+      .select("+password");
     if (!user) {
       throw new Error("Invalid Register Number or Password");
     }
@@ -156,6 +150,7 @@ exports.getBasicData = async (req, res) => {
       });
     }
   } catch (err) {
+    console.log(err);
     res.status(200).json({
       status: "fail",
       message: err.message,

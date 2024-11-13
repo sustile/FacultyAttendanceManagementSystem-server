@@ -10,7 +10,7 @@ dotenv.config({
 
 console.log(process.env.DATABASE);
 
-mongoose.connect("mongodb://127.0.0.1:27017/attendanceApp", (err) => {
+mongoose.connect(process.env.DATABASE, (err) => {
   if (err) {
     console.log(err);
   } else {
