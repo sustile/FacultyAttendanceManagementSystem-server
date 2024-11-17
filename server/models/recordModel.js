@@ -11,6 +11,7 @@ var schema = new mongoose.Schema(
       type: {},
       required: true,
     },
+    overallAttendance : {},
     deviceData: {
       type: {},
       default: {},
