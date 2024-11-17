@@ -4,13 +4,13 @@ const jwt = require("./../utils/jwtToken");
 const appError = require("./../utils/appError");
 const bcrypt = require("bcryptjs/dist/bcrypt");
 const haversine = require("haversine-distance");
-var moment = require("moment-timezone");
-const { TZDate } = require("@date-fns/tz");
+var moment = require('moment-timezone');
+const {TZDate} = require("@date-fns/tz");
 const { set, compareAsc } = require("date-fns");
-const { account } = require("./accountController");
+const {account} = require("./accountController");
 const { geoTag } = require("./geoTagController");
 
-const turf = require("@turf/turf");
+const turf = require("@turf/turf")
 
 const record = mongoose.model("Record", recordModel);
 const JWT_EXPIRE_COOKIE = 10;
@@ -53,6 +53,7 @@ let turfCoords = [
   [12.84077, 80.153226],
 ];
 
+
 const passwordChanged = (account, jwt) => {
   if (account.passwordChangedAt) {
     const time = parseInt(account.passwordChangedAt.getTime() / 1000, 10);
@@ -68,7 +69,7 @@ async function getUser(token) {
   try {
     if (token) {
       const decoded = jsonwt.verify(token, process.env.JSW_SECRET_KEY);
-
+      
       let freshUser = await account.find({ _id: decoded.id });
 
       freshUser = freshUser[0];
@@ -82,7 +83,6 @@ async function getUser(token) {
       }
       return freshUser;
     } else {
-      // next();
       throw new Error("No Token was given");
     }
   } catch (err) {
@@ -90,31 +90,101 @@ async function getUser(token) {
   }
 }
 
+function calculateAttendance(events) {
+  const MS_PER_HOUR = 3600000;
+
+  // Helper function to parse dates and calculate duration in hours
+  const calculateDuration = (start, end) => {
+    let x = (new Date(end) - new Date(start)) / MS_PER_HOUR;
+    return x
+  };
+
+  let totalInside = 0;
+  let totalOutside = 0;
+  let firstEntryTime = null;
+  let firstExitTime = null;
+  let lastEntryTime = null;
+  let breaks = 0;
+
+  for (const event of events) {
+    if (event.type === 'inside') {
+      if (!firstEntryTime) {
+        firstEntryTime = event.creation;
+      }
+      lastEntryTime = event.creation;
+    } else if (event.type === 'outside') {
+      if (lastEntryTime) {
+        if (!firstExitTime) {
+          firstExitTime = event.creation;
+        }
+        const insideDuration = calculateDuration(lastEntryTime, event.creation);
+        totalInside += insideDuration;
+        lastEntryTime = null;
+      }
+    }
+  }
+
+  // Recalculate for outside duration
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].type === 'outside' && events[i + 1]?.type === 'inside') {
+      const outsideDuration = calculateDuration(events[i].creation, events[i + 1].creation);
+      totalOutside += outsideDuration;
+      breaks++;
+    }
+  }
+
+  // Check if first entry-to-exit is >= 4 hours
+  if (firstEntryTime && firstExitTime) {
+    const initialDuration = calculateDuration(firstEntryTime, firstExitTime);
+    if (initialDuration < 4) {
+      return {
+        totalInside: `${totalInside.toFixed(2)} hours`,
+        totalOutside: `${totalOutside.toFixed(2)} hours`,
+        breaks,
+        status: 'Absent',
+        reason: 'First entry-to-exit duration less than 4 hours'
+      };
+    }
+  }
+
+  let reason = "";
+  let status = 'Absent';
+  if (totalInside >= 8) {
+    status = 'Full Day';
+  } else if (totalInside >= 4) {
+    status = 'Half Day';
+    reason: 'Total Duration less than 4 hours'
+  }
+
+  return {
+    totalInside: `${totalInside.toFixed(2)} hours`,
+    totalOutside: `${totalOutside.toFixed(2)} hours`,
+    breaks,
+    status,
+    reason
+  };
+}
+
 exports.markAttendance = async (req, res) => {
   try {
     const body = req.body;
 
-    let date = set(new TZDate(new Date(), "Asia/Kolkata"), {
-      hours: 8,
-      minutes: 0,
-      seconds: 0,
-    });
-    let date2 = set(new TZDate(new Date(), "Asia/Kolkata"), {
-      hours: 19,
-      minutes: 30,
-      seconds: 0,
-    });
-    let chkDate = new TZDate(new Date(), "Asia/Kolkata");
 
-    if (compareAsc(chkDate, date) < 0 || compareAsc(date2, chkDate) < 0) {
-      throw new Error("Attendance closed for the day");
-      return;
+    let date = set(new TZDate(new Date(), "Asia/Kolkata"), {hours : 8, minutes : 0, seconds : 0})
+    let date2 = set(new TZDate(new Date(), "Asia/Kolkata"), {hours : 19, minutes : 30, seconds : 0})
+    let chkDate = new TZDate(new Date(), "Asia/Kolkata")
+
+    if(compareAsc( chkDate, date) <0 || compareAsc(date2, chkDate) <0 ){
+            throw new Error("Attendance closed for the day");
+            return
     }
+
 
     if (!body.token) {
       //no data given
       throw new Error("No data given");
     } else {
+
       user = await getUser(body.token);
       if (user.name === "Error") {
         if (user.message === "jwt malformed") {
@@ -122,6 +192,7 @@ exports.markAttendance = async (req, res) => {
         }
         throw new Error(user.message);
       }
+
 
       const polygon = turf.polygon([turfCoords]);
 
@@ -132,7 +203,7 @@ exports.markAttendance = async (req, res) => {
 
       const isInside = turf.booleanPointInPolygon(point, polygon);
 
-      if (!isInside) {
+      if(!isInside){
         throw new Error("You are not inside this Geofence");
       }
 
@@ -140,7 +211,8 @@ exports.markAttendance = async (req, res) => {
         facultyId: body.facultyId,
         deviceData: {},
         location: { ...body.location },
-        creation: new Date(new TZDate(new Date(), "Asia/Kolkata")),
+        creation : new Date(new TZDate(new Date(), "Asia/Kolkata")),
+        overallAttendance : {}
       };
 
       let newAttendance = await record.create(final);
@@ -154,7 +226,7 @@ exports.markAttendance = async (req, res) => {
       }
     }
   } catch (err) {
-    console.log(err);
+    console.log(err)
     res.status(200).json({
       status: "fail",
       message: err.message,
@@ -166,30 +238,22 @@ exports.updateLocationStatus = async (req, res) => {
   try {
     const body = req.body;
 
-    let date = set(new TZDate(new Date(), "Asia/Kolkata"), {
-      hours: 8,
-      minutes: 0,
-      seconds: 0,
-    });
-    let date2 = set(new TZDate(new Date(), "Asia/Kolkata"), {
-      hours: 19,
-      minutes: 30,
-      seconds: 0,
-    });
-    let chkDate = new TZDate(new Date(), "Asia/Kolkata");
 
-    if (
-      (compareAsc(chkDate, date) < 0 || compareAsc(date2, chkDate) < 0) &&
-      body.type === "inside"
-    ) {
-      throw new Error("Attendance closed for the day");
-      return;
+    let date = set(new TZDate(new Date(), "Asia/Kolkata"), {hours : 8, minutes : 0, seconds : 0})
+    let date2 = set(new TZDate(new Date(), "Asia/Kolkata"), {hours : 19, minutes : 30, seconds : 0})
+    let chkDate = new TZDate(new Date(), "Asia/Kolkata")
+
+    if((compareAsc( chkDate, date) <0 || compareAsc(date2, chkDate) <0) && body.type ==="inside"){
+            throw new Error("Attendance closed for the day");
+            return
     }
+
 
     if (!body.token) {
       //no data given
       throw new Error("No data given");
     } else {
+
       user = await getUser(body.token);
       if (user.name === "Error") {
         if (user.message === "jwt malformed") {
@@ -198,34 +262,27 @@ exports.updateLocationStatus = async (req, res) => {
         throw new Error(user.message);
       }
 
-      if (body.type === "inside") {
+      if(body.type === "inside"){
         const polygon = turf.polygon([turfCoords]);
 
         const point = turf.point([
           body.location.latitude,
           body.location.longitude,
         ]);
-
+  
         const isInside = turf.booleanPointInPolygon(point, polygon);
-
-        if (!isInside) {
+  
+        if(!isInside){
           throw new Error("You are not inside this Geofence");
         }
       }
-
-      let date = set(new TZDate(new Date(), "Asia/Kolkata"), {
-        hours: 8,
-        minutes: 0,
-        seconds: 0,
-      });
-      let date2 = set(new TZDate(new Date(), "Asia/Kolkata"), {
-        hours: 19,
-        minutes: 30,
-        seconds: 0,
-      });
+      //check if the latest attendance exists and retrieve it
+      let date = set(new TZDate(new Date(), "Asia/Kolkata"), {hours : 8, minutes : 0, seconds : 0})
+      let date2 = set(new TZDate(new Date(), "Asia/Kolkata"), {hours : 19, minutes : 30, seconds : 0})
 
       let fromDate = new Date(date);
       let toDate = new Date(date2);
+
       let rec = await record.find({
         creation: {
           $gte: fromDate.toISOString(),
@@ -234,76 +291,82 @@ exports.updateLocationStatus = async (req, res) => {
         facultyId: user.facultyId,
       });
 
-      if (rec.length === 0) {
+      if(rec.length === 0){
         throw new Error("Latest Attendance Doesn't Exist");
       }
       rec = rec[0];
 
-      if (rec.updates.length === 0 && body.type != "inside") {
+      if(rec.updates.length === 0 && body.type != "inside"){
         //just update it
-        let final = {
-          facultyId: body.facultyId,
-          deviceData: {},
-          location: { ...body.location },
-          type: body.type,
-          creation: new Date(new TZDate(new Date(), "Asia/Kolkata")),
-        };
+                  let final = {
+                    facultyId: body.facultyId,
+                    deviceData: {},
+                    location: { ...body.location },
+                    type : body.type,
+                    creation : new Date(new TZDate(new Date(), "Asia/Kolkata"))
+                  };
+        
+                  let y = rec.updates;
+                  y.push(final);
 
-        let y = rec.updates;
-        y.push(final);
+                  
+          let events = [{type : "inside", creation : rec.creation},...y]
 
-        try {
-          let newAttendance = await record.updateOne(
-            { _id: rec._id },
-            { updates: y }
-          );
-          res.status(200).json({
-            status: "fail",
-          });
-        } catch (e) {
-          res.status(200).json({
-            status: "fail",
-          });
-        }
-      } else {
+          let status = calculateAttendance(events)
+        
+                  try{
+                    let newAttendance = await record.updateOne({_id : rec._id}, {updates : y, overallAttendance : status});
+                    res.status(200).json({
+                      status: "fail",
+                    });
+        
+                  }catch(e){
+                    res.status(200).json({
+                      status: "fail",
+                    });
+                  }
+
+      }else{
         let x = rec.updates[rec.updates.length - 1];
         //check if previous type is same new input
-        if (x.type === body.type) {
+        if(x.type === body.type){
           //skip it device probably switched off
           res.status(200).json({
             status: "ok",
           });
-        } else {
+        }else{
           //update it
           let final = {
             facultyId: body.facultyId,
             deviceData: {},
             location: { ...body.location },
-            type: body.type,
-            creation: new Date(new TZDate(new Date(), "Asia/Kolkata")),
+            type : body.type,
+            creation : new Date(new TZDate(new Date(), "Asia/Kolkata"))
           };
 
           let y = rec.updates;
           y.push(final);
 
-          try {
-            let newAttendance = await record.update(
-              { _id: rec._id },
-              { updates: y }
-            );
+          let events = [{type : "inside", creation : rec.creation},...y]
+
+          let status = calculateAttendance(events)
+
+          try{
+            let newAttendance = await record.update({_id : rec._id}, {updates : y, overallAttendance : status});
             res.status(200).json({
               status: "fail",
             });
-          } catch (e) {
+
+          }catch(e){
             res.status(200).json({
               status: "fail",
             });
           }
+    
         }
       }
-    }
   } catch (err) {
-    console.log(err);
+    console.log(err)
     res.status(200).json({
       status: "fail",
       message: err.message,
@@ -315,6 +378,7 @@ exports.getLatestAttendance = async (req, res) => {
   try {
     const body = req.body;
 
+
     if (!body.token) {
       //no data given
       throw new Error("No data given");
@@ -327,19 +391,13 @@ exports.getLatestAttendance = async (req, res) => {
         throw new Error(user.message);
       }
 
-      //user found successfully
-
-      let rec = await record
-        .find({ facultyId: user.facultyId })
-        .sort({ createdAt: -1 });
+      let rec = await record.find({facultyId : user.facultyId}).sort({createdAt: -1});
 
       res.status(200).json({
         status: "ok",
-        latestRecord:
-          rec.length === 0
-            ? null
-            : new Date(new TZDate(rec[0].createdAt, "Asia/Kolkata")),
+        latestRecord : rec.length ===0? null: new Date(new TZDate(rec[0].createdAt, "Asia/Kolkata")) 
       });
+
     }
   } catch (err) {
     res.status(200).json({
@@ -349,12 +407,12 @@ exports.getLatestAttendance = async (req, res) => {
   }
 };
 
+
 exports.checkAttendanceStatus = async (req, res) => {
   try {
     const body = req.body;
 
     if (!body.token) {
-      //no data given
       throw new Error("No data given");
     } else {
       user = await getUser(body.token);
@@ -365,18 +423,9 @@ exports.checkAttendanceStatus = async (req, res) => {
         throw new Error(user.message);
       }
 
-      //user found successfully
 
-      let date = set(new TZDate(new Date(), "Asia/Kolkata"), {
-        hours: 8,
-        minutes: 0,
-        seconds: 0,
-      });
-      let date2 = set(new TZDate(new Date(), "Asia/Kolkata"), {
-        hours: 19,
-        minutes: 30,
-        seconds: 0,
-      });
+      let date = set(new TZDate(new Date(), "Asia/Kolkata"), {hours : 8, minutes : 0, seconds : 0})
+      let date2 = set(new TZDate(new Date(), "Asia/Kolkata"), {hours : 19, minutes : 30, seconds : 0})
 
       let fromDate = new Date(date);
       let toDate = new Date(date2);
@@ -393,8 +442,9 @@ exports.checkAttendanceStatus = async (req, res) => {
 
       res.status(200).json({
         status: "ok",
-        attendanceStatus: x.length === 0,
+        attendanceStatus : x.length ===0
       });
+
     }
   } catch (err) {
     res.status(200).json({
@@ -419,20 +469,17 @@ exports.getRecords = async (req, res) => {
         }
         throw new Error(user.message);
       }
-
-      //user found successfully
-
+      
       let fromDate = new Date(new Date().toLocaleString()).setHours(8, 0, 0);
       let toDate = new Date(new Date().toLocaleString()).setHours(19, 30, 0);
 
-      let x = await record
-        .find({ facultyId: user.facultyId })
-        .sort({ createdAt: -1 });
+      let x = await record.find({ facultyId: user.facultyId}).sort({createdAt: -1});
 
       res.status(200).json({
         status: "ok",
-        records: x,
+        records : x
       });
+
     }
   } catch (err) {
     res.status(200).json({
@@ -446,15 +493,12 @@ exports.getTest = async (req, res) => {
   try {
     const body = req.body;
 
-    console.log([
-      body.position.coords.longitude,
-      body.position.coords.latitude,
-      body.position.coords.accuracy,
-    ]);
+    console.log([body.position.coords.longitude, body.position.coords.latitude, body.position.coords.accuracy])
 
-    res.status(200).json({
-      status: "ok",
-    });
+      res.status(200).json({
+        status: "ok",
+      });
+
   } catch (err) {
     res.status(200).json({
       status: "fail",
